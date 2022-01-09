@@ -1,0 +1,116 @@
+#1. Load admin openrc
+source admin-openrc.sh
+
+#2. Set project quota
+openstack quota set --ram 131072 --core 32 project-0
+openstack quota show project-0
+
+#3. Create a flavor
+openstack flavor create --vcpus 4 --ram 16384 --disk 32 flavor-4-16-32
+openstack flavor list
+
+#4. Create swftoperator role and add it to user
+openstack role create swiftoperator
+openstack role add --user karno --project project-0 swiftoperator
+
+#5. Create OpenStack cloud config file
+mkdir -p ~/.config/openstack/
+cat <<EOF > ~/.config/openstack/clouds.yaml
+clouds:
+  stratus:
+    region_name: RegionOne
+    auth:
+      auth_url: https://osext.stratus.ok:5000/v3
+      project_name: project-0
+      username: karno
+      password: rahasia
+      user_domain_name: Default
+      project_domain_name: Default
+    cacert: "/etc/kolla/certificates/ca/root.crt"
+EOF
+
+#6. Obtain OKD installation and client binary
+wget -c https://github.com/openshift/okd/releases/download/4.7.0-0.okd-2021-09-19-013247/openshift-install-linux-4.7.0-0.okd-2021-09-19-013247.tar.gz
+wget -c https://github.com/openshift/okd/releases/download/4.7.0-0.okd-2021-09-19-013247/openshift-client-linux-4.7.0-0.okd-2021-09-19-013247.tar.gz
+tar -xf openshift-install-linux-4.7.0-0.okd-2021-09-19-013247.tar.gz openshift-install
+mv openshift-install ~/bin
+tar -xf openshift-client-linux-4.7.0-0.okd-2021-09-19-013247.tar.gz oc
+mv oc ~/bin
+
+#7. Creating the installation configuration file
+mkdir ~/okd
+cat <<EOF > ~/okd/install-config.yaml
+apiVersion: v1
+baseDomain: stratus.ok
+compute:
+- architecture: amd64
+  hyperthreading: Enabled
+  name: worker
+  platform: {}
+  replicas: 3
+controlPlane:
+  architecture: amd64
+  hyperthreading: Enabled
+  name: master
+  platform: {}
+  replicas: 3
+metadata:
+  creationTimestamp: null
+  name: okd
+networking:
+  clusterNetwork:
+  - cidr: 10.128.0.0/14
+    hostPrefix: 23
+  machineNetwork:
+  - cidr: 10.0.0.0/16
+  networkType: OVNKubernetes
+  serviceNetwork:
+  - 172.30.0.0/16
+platform:
+  openstack:
+    apiFloatingIP: 10.14.14.5
+    apiVIP: 10.0.0.5
+    cloud: stratus
+    defaultMachinePlatform:
+      type: flavor-4-16-32
+    externalDNS: ["10.11.11.11"]
+    externalNetwork: net-ext
+    ingressFloatingIP: 10.14.14.7
+    ingressVIP: 10.0.0.7
+publish: External
+pullSecret: '{"auths":{"fake":{"auth":"aWQ6cGFzcwo="}}}'
+sshKey: |
+  ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDJHd66XkyM9GLmdb64uUZ26PXtP0mC+lDFZWjfiWNXexV9ww3LOpGyC6IqlW9dAFLda6+tDzleCQGiI4FYjnIBnnaTktzcu/D6DSDuZhHTJTNSnq7teypTS61OJkjIq5jrAmZ57zJegF53yfasJHmyo+L98K80Bg5y+rq6N9/jqkK93c+sCdkVNPlSTetag+Ae2qLuXY9OuO7cvRP5CXu7SHlj4DODYny24a/Xh+wIfVaViAvCfTXPhVyBQ15AdJB9N3XTsDC4Jtvv5bm/iQpnbqnP2OQoWle21h8OdsUIIMKP+MyqCDz7QuoNCf47I2KnglaB7tkLg2Dl5AxEHH7uJN/GtKVcen1N6lPzg8rwtYyXV7olfQxjr1YVGF+wkYrMjLgHk1pZLsjeI4KNA/1xLHaxU5CgI6wqnGL5voYitegmNC+F+HhSabr1lJe0QDtGM6FxP6CAzrTO9mWXSoyQdD405i2RY9QNgjve+FP2HygzrshGDj18GKozdBNAXR8= karno@nakula
+EOF
+
+#8. Create floating IP addresses for external access to the OKD API and cluster applications.
+openstack floating ip create --floating-ip-address 10.14.14.5 --project project-0 net-ext
+openstack floating ip create --floating-ip-address 10.14.14.7 --project project-0 net-ext
+openstack floating ip list
+
+#9. Add record to DNS resolver
+sudo tee -a /etc/hosts <<EOF
+10.14.14.5 api.okd.stratus.ok
+10.14.14.7 console-openshift-console.apps.okd.stratus.ok oauth-openshift.apps.okd.stratus.ok
+EOF
+
+sudo tee /etc/dnsmasq.d/stratus.ok.conf <<EOF
+address=/api.okd.stratus.ok/10.14.14.5
+address=/.apps.okd.stratus.ok/10.14.14.7
+EOF
+sudo systemctl restart dnsmasq
+sudo systemctl status dnsmasq
+
+#10. Deploy OKD cluster
+screen -r 0
+openshift-install create cluster --dir ~/okd --log-level=debug
+#Ctrl+A,D
+
+#11. Verifying OKD cluster status
+source karno-openrc.sh
+openstack server list
+export KUBECONFIG= ~/okd/auth/kubeconfig
+oc get nodes
+oc get clusterversion
+oc get clusteroperator
+oc get pods -A
