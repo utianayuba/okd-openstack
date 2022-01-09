@@ -40,7 +40,7 @@ mv oc ~/bin
 
 #7. Creating the installation configuration file
 mkdir ~/okd-4.7
-cat <<EOF > ~/okd/install-config.yaml
+cat <<EOF > ~/okd-4.7/install-config.yaml
 apiVersion: v1
 baseDomain: stratus.ok
 compute:
@@ -48,7 +48,7 @@ compute:
   hyperthreading: Enabled
   name: worker
   platform: {}
-  replicas: 3
+  replicas: 2
 controlPlane:
   architecture: amd64
   hyperthreading: Enabled
@@ -110,7 +110,7 @@ openshift-install create cluster --dir ~/okd-4.7 --log-level=debug
 #11. Verifying OKD cluster status
 source karno-openrc.sh
 openstack server list
-export KUBECONFIG= ~/okd-4.7/auth/kubeconfig
+export KUBECONFIG=~/okd-4.7/auth/kubeconfig
 oc get nodes
 oc get clusterversion
 oc get clusteroperator
