@@ -12,6 +12,7 @@ openstack flavor list
 #4. Create swftoperator role and add it to user
 openstack role create swiftoperator
 openstack role add --user karno --project project-0 swiftoperator
+openstack role assignment list --names --user karno
 
 #5. Create OpenStack cloud config file
 mkdir -p ~/.config/openstack/
@@ -38,8 +39,8 @@ tar -xf openshift-client-linux-4.7.0-0.okd-2021-09-19-013247.tar.gz oc
 mv oc ~/bin
 
 #7. Creating the installation configuration file
-mkdir ~/okd
-cat <<EOF > ~/okd/install-config.yaml
+mkdir ~/okd-4.7
+cat <<EOF > ~/okd-4.7/install-config.yaml
 apiVersion: v1
 baseDomain: stratus.ok
 compute:
@@ -47,7 +48,7 @@ compute:
   hyperthreading: Enabled
   name: worker
   platform: {}
-  replicas: 3
+  replicas: 2
 controlPlane:
   architecture: amd64
   hyperthreading: Enabled
@@ -103,14 +104,16 @@ sudo systemctl status dnsmasq
 
 #10. Deploy OKD cluster
 screen -r 0
-openshift-install create cluster --dir ~/okd --log-level=debug
+openshift-install create cluster --dir ~/okd-4.7 --log-level=debug
 #Ctrl+A,D
 
 #11. Verifying OKD cluster status
 source karno-openrc.sh
 openstack server list
-export KUBECONFIG= ~/okd/auth/kubeconfig
+export KUBECONFIG=~/okd-4.7/auth/kubeconfig
 oc get nodes
 oc get clusterversion
 oc get clusteroperator
 oc get pods -A
+
+#12. Access the OKD web-console https://console-openshift-console.apps.okd.stratus.ok and login with kubeadmin user and password from ~/okd-4.7/auth/kubeadmin-password
