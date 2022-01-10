@@ -2,7 +2,7 @@
 source admin-openrc.sh
 
 #2. Set project quota
-openstack quota set --ram 131072 --core 32 project-0
+openstack quota set --ram 131072 --core 32 --secgroups 250 --secgroup-rules 1000 --ports 1500 --subnets 250 --networks 250 project-0
 openstack quota show project-0
 
 #3. Create a flavor
@@ -66,7 +66,7 @@ networking:
     hostPrefix: 23
   machineNetwork:
   - cidr: 10.0.0.0/16
-  networkType: OVNKubernetes
+  networkType: Kuryr
   serviceNetwork:
   - 172.30.0.0/16
 platform:
@@ -80,6 +80,8 @@ platform:
     externalNetwork: net-ext
     ingressFloatingIP: 10.14.14.7
     ingressVIP: 10.0.0.7
+    trunkSupport: true 
+    octaviaSupport: true
 publish: External
 pullSecret: '{"auths":{"fake":{"auth":"aWQ6cGFzcwo="}}}'
 sshKey: |
@@ -109,9 +111,37 @@ dig @10.11.11.11 app1.apps.okd.stratus.ok
 #10. Deploy OKD cluster
 screen -r 0
 openshift-install create cluster --dir ~/clusters/okd-4.7 --log-level=debug
+#Exec the following command if deployment process need more time
+#openshift-install wait-for install-complete --dir ~/clusters/okd-4.7 --log-level=debug
 #Ctrl+A,D
 
-#11. Verifying OKD cluster status
+#11. Adjusting Kuryr ports pools during installation
+openshift-install create manifests --dir  ~/clusters/okd-4.7
+export KUBECONFIG=~/clusters/okd-4.7/auth/kubeconfig
+oc edit networks.operator.openshift.io cluster
+
+apiVersion: operator.openshift.io/v1
+kind: Network
+metadata:
+  name: cluster
+spec:
+  clusterNetwork:
+  - cidr: 10.128.0.0/14
+    hostPrefix: 23
+  serviceNetwork:
+  - 172.30.0.0/16
+  defaultNetwork:
+    type: Kuryr
+    kuryrConfig:
+      enablePortPoolsPrepopulation: false 
+      poolMinPorts: 1 
+      poolBatchPorts: 3 
+      poolMaxPorts: 5 
+      openstackServiceNetwork: 172.30.0.0/15 
+...
+
+
+#12. Verifying OKD cluster status
 source karno-openrc.sh
 openstack server list
 export KUBECONFIG=~/clusters/okd-4.7/auth/kubeconfig
@@ -120,4 +150,4 @@ oc get clusterversion
 oc get clusteroperator
 oc get pods -A
 
-#12. Access the OKD web-console https://console-openshift-console.apps.okd.stratus.ok and login with kubeadmin user and password from ~/okd-4.7/auth/kubeadmin-password
+#13. Access the OKD web-console https://console-openshift-console.apps.okd.stratus.ok and login with kubeadmin user and password from ~/okd-4.7/auth/kubeadmin-password
